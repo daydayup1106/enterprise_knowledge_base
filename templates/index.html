@@ -508,10 +508,21 @@
 
     <script>
         // ── State ────────────────────────────────────────────────────────────────
+        function generateUUID() {
+            if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+                return crypto.randomUUID();
+            }
+            // Fallback for HTTP environments
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
         const THREAD_ID_KEY = 'ekb_thread_id';
         let threadId = localStorage.getItem(THREAD_ID_KEY);
         if (!threadId) {
-            threadId = crypto.randomUUID();
+            threadId = generateUUID();
             localStorage.setItem(THREAD_ID_KEY, threadId);
         }
         document.getElementById('thread-id-display').textContent = threadId.slice(0, 8) + '…';

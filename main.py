@@ -60,6 +60,7 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
 
     app.state.index_ready = False
+    app.state.startup_failed = False
     app.state.rag_engine = None
     app.state.langgraph_app = None
 
@@ -80,11 +81,14 @@ async def lifespan(app: FastAPI):
         logger.info("=" * 60)
 
     except FileNotFoundError as e:
+        app.state.startup_failed = True
         logger.error(f"STARTUP FAILED — knowledge base document missing: {e}")
         # Do not raise — let server start so /health can report the error
     except ConnectionError as e:
+        app.state.startup_failed = True
         logger.error(f"STARTUP FAILED — Redis unavailable: {e}")
     except Exception as e:
+        app.state.startup_failed = True
         logger.error(f"STARTUP FAILED — unexpected error: {e}", exc_info=True)
 
     yield  # ← server is alive here, handling requests
@@ -187,6 +191,12 @@ async def health_check(request: Request):
             "status": "ready",
             "index_loaded": True,
             "doc_chunk_count": rag_engine.chunk_count,
+        }
+    elif getattr(request.app.state, "startup_failed", False):
+        return {
+            "status": "error",
+            "index_loaded": False,
+            "doc_chunk_count": 0,
         }
     elif rag_engine is None:
         return {
