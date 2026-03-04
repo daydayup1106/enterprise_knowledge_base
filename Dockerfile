@@ -2,12 +2,15 @@ FROM continuumio/miniconda3:latest
 
 WORKDIR /app
 
-# Copy project files
-COPY . /app/
+# 先复制依赖文件，利用缓存
+COPY requirements.txt .
 
 # Create conda environment and install all dependencies
 RUN conda create -n enterprise_knowledge_base python=3.11 -y && \
     conda run -n enterprise_knowledge_base pip install --no-cache-dir -r requirements.txt
+
+# 再复制代码
+COPY . .
 
 # Expose FastAPI port
 EXPOSE 8181

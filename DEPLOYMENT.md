@@ -236,8 +236,6 @@ curl http://localhost:8181/api/v1/health
 
 ```bash
 # 查看所有容器状态
-docker compose ps
-
 # 查看实时日志
 docker compose logs -f web
 docker compose logs -f redis
