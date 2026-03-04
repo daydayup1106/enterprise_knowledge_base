@@ -115,10 +115,8 @@ snapshot_download('BAAI/bge-small-zh-v1.5', local_dir='/opt/models/bge-small-zh-
 "
 
 # 下载 Reranker 模型（约 1GB）
-python3 -c "
-from huggingface_hub import snapshot_download
-snapshot_download('BAAI/bge-reranker-base', local_dir='/opt/models/bge-reranker-base')
-"
+
+
 ```
 
 > **网络问题**：若 HuggingFace 下载慢，可使用镜像站：
@@ -482,4 +480,75 @@ sudo systemctl status ekb
 `bash
 curl http://localhost:8181/api/v1/health
 # 期望：{"status":"ready","index_loaded":true,"doc_chunk_count":XX}
+`
+
+---
+
+## 十四、Docker 部署启用 GPU 推理（加速必选）
+
+为了让 Docker 容器内的程序能调用腾讯云宿主机的 NVIDIA GPU，极大提升检索和重排序速度，你需要完成以下步骤。
+
+### 14.1 确认宿主机已安装 NVIDIA 驱动
+
+首先在服务器上执行：
+`bash
+nvidia-smi
+`
+如果能正常看到 GPU 信息，说明驱动已装好。如果提示「command not found」，请先通过腾讯云控制台一键安装 GPU 驱动，或按官方文档安装。
+
+### 14.2 安装 NVIDIA Container Toolkit (让 Docker 认识 GPU)
+
+这步非常关键，如果不装这个，Docker 容器无法使用 GPU。
+
+`bash
+# 1. 配置仓库
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+# 2. 安装
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit
+
+# 3. 配置 Docker 守护进程并重启
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+`
+
+### 14.3 配置 .env 启用 GPU
+
+编辑项目根目录的 .env 文件，将 DEVICE 改为 cuda：
+
+`dotenv
+# 将 DEVICE 设为 cuda 即可启用 GPU 推理
+DEVICE=cuda
+`
+
+### 14.4 检查 docker-compose.yml 的 GPU 支持
+
+本项目最新的 docker-compose.yml 已经内置了 GPU 预留声明：
+
+`yaml
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+`
+
+### 14.5 启动！
+
+`bash
+cd /opt/enterprise_knowledge_base
+
+# 完全重建并启动
+docker compose down
+docker compose build web
+docker compose up -d
+
+# 跟随日志，应该能看到加载模型比 CPU 模式快了非常多
+docker compose logs -f web
 `

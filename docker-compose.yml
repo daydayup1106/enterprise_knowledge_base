@@ -31,6 +31,13 @@ services:
       - /opt/models/bge-reranker-base:/app/models/rerank_model:ro
       - ./data:/app/data:ro
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   redis:
     image: redis/redis-stack-server:latest
