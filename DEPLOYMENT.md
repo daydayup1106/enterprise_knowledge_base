@@ -332,3 +332,154 @@ volumes:
 | 页面能访问但回复很慢 | CPU 推理正常现象，首次问题冷启动需 10～30 秒 |
 | `FileNotFoundError` 指向模型路径 | 检查 volumes 挂载路径是否与 `/opt/models/` 下目录名一致 |
 | 端口 8181 无法访问 | 检查腾讯云安全组入站规则是否已放行 8181 端口 |
+
+---
+
+## 十三、不用 Docker：直接用 Conda 环境部署（推荐与本地保持一致）
+
+如果你希望在服务器上使用和本地完全相同的 Conda 环境来运行项目（而不用 Docker），按以下步骤操作。
+
+### 13.1 安装 Miniconda
+
+`bash
+# 下载 Miniconda 安装脚本（Linux x86_64）
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
+
+# 静默安装到 /opt/miniconda3
+bash miniconda.sh -b -p /opt/miniconda3
+
+# 添加到 PATH（写入 ~/.bashrc）
+echo 'export PATH="/opt/miniconda3/bin:"' >> ~/.bashrc
+source ~/.bashrc
+
+# 验证安装
+conda --version
+`
+
+### 13.2 创建与本地相同的 Conda 环境
+
+`bash
+# 创建名为 enterprise_knowledge_base 的 Python 3.11 环境（与本地一致）
+conda create -n enterprise_knowledge_base python=3.11 -y
+
+# 激活环境
+conda activate enterprise_knowledge_base
+`
+
+### 13.3 安装依赖
+
+> **注意**：服务器如果没有 GPU，需要先安装 CPU 版 PyTorch，再安装其余依赖。
+
+**无 GPU（CPU 推理）：**
+`bash
+# 先安装 CPU 版 PyTorch（避免拉取巨大的 CUDA 版本）
+pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+
+# 再安装其余依赖
+pip install --no-cache-dir -r requirements.txt
+`
+
+**有 GPU（CUDA 12.x）：**
+`bash
+# 先安装 CUDA 版 PyTorch
+pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu128
+
+# 再安装其余依赖
+pip install --no-cache-dir -r requirements.txt
+
+# 验证 GPU 可用
+python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
+`
+
+> **网络慢？** 可加 PyPI 镜像加速：
+> `bash
+> pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+> `
+
+### 13.4 配置环境变量
+
+`bash
+cd /opt/enterprise_knowledge_base
+
+# 从模板复制 .env
+cp .env.example .env
+nano .env
+`
+
+填写内容参考[第六章](#六配置环境变量)，模型路径改为服务器上的实际路径，例如：
+
+`dotenv
+EMBED_MODEL_NAME=/opt/models/bge-small-zh-v1.5
+RERANK_MODEL_NAME=/opt/models/bge-reranker-base
+DEVICE=cpu
+REDIS_URL=redis://localhost:6379/0
+`
+
+### 13.5 安装并启动 Redis
+
+Conda 环境部署时需要单独运行 Redis（不依赖 Docker Compose）：
+
+`bash
+# 方式A：用 Docker 单独跑 Redis（推荐）
+docker run -d --name ekb_redis \
+  -p 127.0.0.1:6379:6379 \
+  --restart unless-stopped \
+  redis/redis-stack-server:latest
+
+# 方式B：直接安装 Redis
+sudo apt-get install redis-server -y
+sudo systemctl enable redis-server
+sudo systemctl start redis-server
+`
+
+### 13.6 启动应用
+
+`bash
+# 确保在项目目录且已激活环境
+cd /opt/enterprise_knowledge_base
+conda activate enterprise_knowledge_base
+
+# 前台运行（测试用）
+uvicorn main:app --host 0.0.0.0 --port 8181
+
+# 后台运行（生产用，日志写入 app.log）
+nohup uvicorn main:app --host 0.0.0.0 --port 8181 > app.log 2>&1 &
+
+# 查看日志
+tail -f app.log
+`
+
+### 13.7 设置开机自启（systemd）
+
+`bash
+sudo tee /etc/systemd/system/ekb.service > /dev/null <<EOF
+[Unit]
+Description=Enterprise Knowledge Base App
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/opt/enterprise_knowledge_base
+Environment="PATH=/opt/miniconda3/envs/enterprise_knowledge_base/bin"
+ExecStart=/opt/miniconda3/envs/enterprise_knowledge_base/bin/uvicorn main:app --host 0.0.0.0 --port 8181
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable ekb
+sudo systemctl start ekb
+
+# 查看服务状态
+sudo systemctl status ekb
+`
+
+### 13.8 健康检查
+
+`bash
+curl http://localhost:8181/api/v1/health
+# 期望：{"status":"ready","index_loaded":true,"doc_chunk_count":XX}
+`
