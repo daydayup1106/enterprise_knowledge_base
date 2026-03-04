@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    container_name: ekb_web
+    ports:
+      - "8181:8181"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL}
+      # Container-internal fixed paths; host directories mounted via volumes below
+      - EMBED_MODEL_NAME=/app/models/embed_model
+      - RERANK_MODEL_NAME=/app/models/rerank_model
+      - DEVICE=${DEVICE:-cpu}
+      - RAG_HYBRID_TOP_K=${RAG_HYBRID_TOP_K:-10}
+      - RAG_RERANK_TOP_N=${RAG_RERANK_TOP_N:-3}
+      - CHUNK_SIZE=${CHUNK_SIZE:-512}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-128}
+      - MEMORY_WINDOW=${MEMORY_WINDOW:-10}
+      - REDIS_URL=redis://redis:6379/0
+      - KNOWLEDGE_BASE_DOC=${KNOWLEDGE_BASE_DOC:-data/medical_ai_papers_2024_2025.md}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      # Mount model weights from the host into the container (read-only)
+      # Change the host-side paths (/opt/models/...) to wherever you placed the model weights
+      - /opt/models/bge-small-zh-v1.5:/app/models/embed_model:ro
+      - /opt/models/bge-reranker-base:/app/models/rerank_model:ro
+      - ./data:/app/data:ro
+    restart: unless-stopped
+
+  redis:
+    image: redis/redis-stack-server:latest
+    container_name: ekb_redis
+    ports:
+      # Bind to loopback only — do NOT expose Redis to the public internet
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  redis_data:

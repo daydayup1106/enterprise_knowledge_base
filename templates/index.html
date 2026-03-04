@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>企业知识库专家协同系统</title>
+    <!-- Markdown renderer -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+    <meta name="description" content="基于 DeepSeek + LlamaIndex + LangGraph 构建的医疗营养知识库多智能体对话系统" />
+    <style>
+        /* ── Base ──────────────────────────────────────────────────────────── */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg: #f5f7fa;
+            --surface: #ffffff;
+            --surface-2: #f0f2f5;
+            --border: #dde1e7;
+            --accent: #2563eb;
+            --accent-dim: #1d4ed8;
+            --success: #16a34a;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --text: #111827;
+            --text-muted: #6b7280;
+            --user-bg: #2563eb;
+            --bot-bg: #ffffff;
+            --rag-badge: #eff6ff;
+            --rag-border: #bfdbfe;
+            --radius: 12px;
+            --radius-sm: 6px;
+            --font: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100%;
+        }
+
+        /* ── Layout ─────────────────────────────────────────────────────────── */
+        .app-shell {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            max-width: 860px;
+            height: 100%;
+            padding: 0 16px;
+        }
+
+        /* ── Header ─────────────────────────────────────────────────────────── */
+        .header {
+            padding: 20px 0 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--accent-dim), var(--accent));
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .header h1 small {
+            display: block;
+            font-size: 11px;
+            font-weight: 400;
+            color: var(--text-muted);
+            margin-top: 1px;
+        }
+
+        /* status pill */
+        #status-pill {
+            margin-left: auto;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: .3px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: background .3s, color .3s;
+        }
+
+        #status-pill.indexing {
+            background: var(--surface-2);
+            color: var(--warning);
+            border: 1px solid var(--warning);
+        }
+
+        #status-pill.ready {
+            background: #f0fdf4;
+            color: var(--success);
+            border: 1px solid var(--success);
+        }
+
+        #status-pill.error {
+            background: #fef2f2;
+            color: var(--danger);
+            border: 1px solid var(--danger);
+        }
+
+        .dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 1.5s ease infinite;
+        }
+
+        .ready .dot,
+        .error .dot {
+            animation: none;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: .3;
+            }
+        }
+
+        /* ── Messages ───────────────────────────────────────────────────────── */
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) transparent;
+        }
+
+        .message {
+            display: flex;
+            gap: 10px;
+            animation: fadeUp .25s ease both;
+        }
+
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(6px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .user .avatar {
+            background: var(--user-bg);
+            color: #fff;
+        }
+
+        .bot .avatar {
+            background: var(--surface-2);
+            color: var(--accent);
+            border: 1px solid var(--border);
+        }
+
+        .bubble {
+            max-width: 76%;
+            padding: 10px 14px;
+            border-radius: var(--radius);
+            line-height: 1.6;
+            font-size: 14px;
+            word-break: break-word;
+        }
+
+        /* ── Markdown rendered content ───────────────────────────────────────── */
+        .bubble h1,
+        .bubble h2,
+        .bubble h3 {
+            margin: 10px 0 4px;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+
+        .bubble h1 {
+            font-size: 16px;
+        }
+
+        .bubble h2 {
+            font-size: 15px;
+        }
+
+        .bubble h3 {
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        .bubble p {
+            margin: 4px 0;
+        }
+
+        .bubble ul,
+        .bubble ol {
+            margin: 4px 0 4px 18px;
+            padding: 0;
+        }
+
+        .bubble li {
+            margin: 2px 0;
+        }
+
+        .bubble strong {
+            font-weight: 600;
+        }
+
+        .bubble em {
+            font-style: italic;
+        }
+
+        .bubble code {
+            background: var(--surface-2);
+            border-radius: 3px;
+            padding: 1px 5px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .bubble pre {
+            background: var(--surface-2);
+            border-radius: var(--radius-sm);
+            padding: 10px 12px;
+            overflow-x: auto;
+            margin: 6px 0;
+        }
+
+        .bubble pre code {
+            background: none;
+            padding: 0;
+            font-size: 13px;
+        }
+
+        .bubble hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 8px 0;
+        }
+
+        .bubble table {
+            border-collapse: collapse;
+            margin: 6px 0;
+            font-size: 13px;
+            width: 100%;
+        }
+
+        .bubble th,
+        .bubble td {
+            border: 1px solid var(--border);
+            padding: 4px 8px;
+            text-align: left;
+        }
+
+        .bubble th {
+            background: var(--surface-2);
+            font-weight: 600;
+        }
+
+        /* First child has no top margin */
+        .bubble>*:first-child {
+            margin-top: 0;
+        }
+
+        .bubble>*:last-child {
+            margin-bottom: 0;
+        }
+
+        .user .bubble {
+            background: var(--user-bg);
+            border-bottom-right-radius: 3px;
+        }
+
+        .bot .bubble {
+            background: var(--bot-bg);
+            border: 1px solid var(--border);
+            border-bottom-left-radius: 3px;
+        }
+
+        /* RAG badge */
+        .rag-badge {
+            display: inline-block;
+            margin-top: 6px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            background: var(--rag-badge);
+            border: 1px solid var(--rag-border);
+            color: var(--accent);
+            letter-spacing: .4px;
+        }
+
+        /* typing indicator */
+        .typing .bubble {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            padding: 14px;
+        }
+
+        .typing-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            animation: bounce .9s ease infinite;
+        }
+
+        .typing-dot:nth-child(2) {
+            animation-delay: .15s;
+        }
+
+        .typing-dot:nth-child(3) {
+            animation-delay: .30s;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            60%,
+            100% {
+                transform: translateY(0);
+            }
+
+            30% {
+                transform: translateY(-6px);
+            }
+        }
+
+        /* ── Input area ─────────────────────────────────────────────────────── */
+        .input-area {
+            padding: 16px 0 24px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        #user-input {
+            flex: 1;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: var(--radius);
+            padding: 10px 14px;
+            font-size: 14px;
+            font-family: var(--font);
+            resize: none;
+            outline: none;
+            min-height: 44px;
+            max-height: 120px;
+            transition: border-color .2s;
+            line-height: 1.5;
+        }
+
+        #user-input:focus {
+            border-color: var(--accent);
+        }
+
+        #user-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        #send-btn {
+            flex-shrink: 0;
+            width: 44px;
+            height: 44px;
+            border-radius: var(--radius);
+            background: var(--accent);
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background .2s, transform .1s;
+        }
+
+        #send-btn:hover:not(:disabled) {
+            background: #1d4ed8;
+            transform: scale(1.04);
+        }
+
+        #send-btn:active:not(:disabled) {
+            transform: scale(.97);
+        }
+
+        #send-btn:disabled {
+            background: var(--surface-2);
+            cursor: not-allowed;
+        }
+
+        #send-btn svg {
+            fill: #fff;
+        }
+
+        /* ── Thread info bar ─────────────────────────────────────────────────── */
+        .thread-bar {
+            padding: 6px 0 0;
+            font-size: 11px;
+            color: var(--text-muted);
+            display: flex;
+            gap: 8px;
+        }
+
+        #chunk-info {
+            margin-left: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app-shell">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-icon">🧠</div>
+            <h1>
+                企业知识库专家协同系统
+                <small>DeepSeek · LlamaIndex · LangGraph</small>
+            </h1>
+            <div id="status-pill" class="indexing">
+                <span class="dot"></span>
+                <span id="status-text">知识库加载中…</span>
+            </div>
+        </header>
+
+        <!-- Thread info bar -->
+        <div class="thread-bar">
+            <span>会话 ID: <code id="thread-id-display"></code></span>
+            <span id="chunk-info"></span>
+        </div>
+
+        <!-- Messages -->
+        <div id="messages">
+            <div class="message bot">
+                <div class="avatar">🤖</div>
+                <div class="bubble">
+                    您好！我是企业知识库专家助手。知识库加载完成后，您可以询问有关医疗营养学的专业问题，或进行日常对话。
+                </div>
+            </div>
+        </div>
+
+        <!-- Input area -->
+        <div class="input-area">
+            <textarea id="user-input" placeholder="输入您的问题，按 Enter 发送（Shift+Enter 换行）…" rows="1" disabled></textarea>
+            <button id="send-btn" disabled title="发送">
+                <svg width="18" height="18" viewBox="0 0 24 24">
+                    <path d="M2 21l21-9L2 3v7l15 2-15 2z" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // ── State ────────────────────────────────────────────────────────────────
+        const THREAD_ID_KEY = 'ekb_thread_id';
+        let threadId = localStorage.getItem(THREAD_ID_KEY);
+        if (!threadId) {
+            threadId = crypto.randomUUID();
+            localStorage.setItem(THREAD_ID_KEY, threadId);
+        }
+        document.getElementById('thread-id-display').textContent = threadId.slice(0, 8) + '…';
+
+        let systemReady = false;
+        let healthTimer = null;
+
+        // ── DOM refs ─────────────────────────────────────────────────────────────
+        const messagesEl = document.getElementById('messages');
+        const inputEl = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const statusPill = document.getElementById('status-pill');
+        const statusText = document.getElementById('status-text');
+        const chunkInfo = document.getElementById('chunk-info');
+
+        // ── Health polling ───────────────────────────────────────────────────────
+        async function checkHealth() {
+            try {
+                const res = await fetch('/api/v1/health');
+                const data = await res.json();
+
+                if (data.status === 'ready') {
+                    systemReady = true;
+                    clearInterval(healthTimer);
+                    statusPill.className = 'ready';
+                    statusText.textContent = '知识库已就绪';
+                    chunkInfo.textContent = `${data.doc_chunk_count} 个知识块已索引`;
+                    enableInput();
+                } else if (data.status === 'error') {
+                    clearInterval(healthTimer);
+                    statusPill.className = 'error';
+                    statusText.textContent = '系统错误';
+                }
+                // 'indexing' → keep polling
+            } catch (e) {
+                console.warn('Health check failed:', e);
+            }
+        }
+
+        function enableInput() {
+            inputEl.disabled = false;
+            sendBtn.disabled = false;
+            inputEl.focus();
+        }
+
+        // Poll every 2s until ready
+        healthTimer = setInterval(checkHealth, 2000);
+        checkHealth(); // immediate first check
+
+        // ── Markdown setup ───────────────────────────────────────────────────────
+        marked.use({ breaks: true, gfm: true });
+
+        // ── Message rendering ────────────────────────────────────────────────────
+        function appendMessage(role, content, usedRag = false) {
+            const div = document.createElement('div');
+            div.classList.add('message', role);
+
+            const avatar = document.createElement('div');
+            avatar.classList.add('avatar');
+            avatar.textContent = role === 'user' ? '你' : '🤖';
+
+            const bubble = document.createElement('div');
+            bubble.classList.add('bubble');
+
+            if (role === 'bot') {
+                // Render Markdown for bot messages
+                bubble.innerHTML = marked.parse(content);
+            } else {
+                // User messages: plain text, preserve line breaks
+                bubble.style.whiteSpace = 'pre-wrap';
+                bubble.textContent = content;
+            }
+
+            if (role === 'bot' && usedRag) {
+                const badge = document.createElement('div');
+                badge.classList.add('rag-badge');
+                badge.textContent = '📚 已查阅知识库';
+                bubble.appendChild(badge);
+            }
+
+            div.appendChild(avatar);
+            div.appendChild(bubble);
+            messagesEl.appendChild(div);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            return div;
+        }
+
+        function showTyping() {
+            const div = document.createElement('div');
+            div.classList.add('message', 'bot', 'typing');
+            div.id = 'typing-indicator';
+
+            const avatar = document.createElement('div');
+            avatar.classList.add('avatar');
+            avatar.textContent = '🤖';
+
+            const bubble = document.createElement('div');
+            bubble.classList.add('bubble');
+            for (let i = 0; i < 3; i++) {
+                const d = document.createElement('span');
+                d.classList.add('typing-dot');
+                bubble.appendChild(d);
+            }
+
+            div.appendChild(avatar);
+            div.appendChild(bubble);
+            messagesEl.appendChild(div);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function removeTyping() {
+            const el = document.getElementById('typing-indicator');
+            if (el) el.remove();
+        }
+
+        // ── Send message ─────────────────────────────────────────────────────────
+        async function sendMessage() {
+            const text = inputEl.value.trim();
+            if (!text || !systemReady) return;
+
+            inputEl.value = '';
+            inputEl.style.height = 'auto';
+            sendBtn.disabled = true;
+            inputEl.disabled = true;
+
+            appendMessage('user', text);
+            showTyping();
+
+            try {
+                const res = await fetch('/api/v1/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ thread_id: threadId, message: text }),
+                });
+
+                removeTyping();
+
+                if (!res.ok) {
+                    // Non-200: show HTTP-level error
+                    const errData = await res.json().catch(() => ({}));
+                    appendMessage('bot', `⚠️ 系统错误 (${res.status})：${errData.detail || '未知错误，请稍后重试。'}`);
+                    return;
+                }
+
+                const data = await res.json();
+
+                if (data.status === 'error') {
+                    appendMessage('bot', `⚠️ ${data.reply}`);
+                } else {
+                    appendMessage('bot', data.reply, data.metadata?.used_rag === true);
+                }
+
+            } catch (err) {
+                removeTyping();
+                console.error('Network error:', err);
+                appendMessage('bot', '⚠️ 网络连接失败，请检查网络状态后重试。');
+            } finally {
+                sendBtn.disabled = false;
+                inputEl.disabled = false;
+                inputEl.focus();
+            }
+        }
+
+        // ── Event listeners ───────────────────────────────────────────────────────
+        sendBtn.addEventListener('click', sendMessage);
+
+        inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Auto-resize textarea
+        inputEl.addEventListener('input', () => {
+            inputEl.style.height = 'auto';
+            inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+        });
+    </script>
+</body>
+
+</html>
